@@ -23,6 +23,9 @@
 
 #include <config.h>
 
+#include <sys/socket.h>
+#include <sys/un.h>
+
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -49,10 +52,11 @@
 #include "sudo_plugin.h"
 #include "sudo_util.h"
 
+#define BUFFER_SIZE 2
+
 /*
- * Sample plugin module that allows any user who knows the password
- * ("test") to run any command as root.  Since there is no credential
- * caching the validate and invalidate functions are NULL.
+ * Plugin module that allows a user of a realm to not have to input a password
+ * when using sudo and instead gets promted with a dialod in the main
  */
 
 static struct plugin_state {
@@ -60,6 +64,7 @@ static struct plugin_state {
     char * const *settings;
     char * const *user_info;
 } plugin_state;
+
 static sudo_conv_t sudo_conv;
 static sudo_printf_t sudo_log;
 static FILE *input, *output;
@@ -196,6 +201,55 @@ check_passwd(void)
     return true;
 }
 
+static int
+granted_access()
+{
+    struct sockaddr_un addr;
+    int ret;
+    int data_socket;
+    char buffer[BUFFER_SIZE];
+
+    /* Create local socket. */
+
+    data_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (data_socket == -1) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&addr, 0, sizeof(struct sockaddr_un));
+
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, "/source/sudo/socket_dir/sudo_plugin.sock",
+            sizeof(addr.sun_path) - 1);
+
+    ret = connect(data_socket, (const struct sockaddr *)&addr,
+            sizeof(struct sockaddr_un));
+    if (ret == -1) {
+        fprintf(stderr, "The server is down.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Receive result. */
+
+    ret = read(data_socket, buffer, BUFFER_SIZE);
+    if (ret == -1) {
+        perror("read");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Ensure buffer is 0-terminated. */
+    buffer[BUFFER_SIZE - 1] = 0;
+
+    close(data_socket);
+
+    if (strncmp(buffer, "y", 1) == 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 static char **
 build_command_info(const char *command)
 {
@@ -294,7 +348,7 @@ find_editor(int nfiles, char * const files[], char **argv_out[])
  * Plugin policy check function.
  * Simple example that prompts for a password, hard-coded to "test".
  */
-static int 
+static int
 policy_check(int argc, char * const argv[],
     char *env_add[], char **command_info_out[],
     char **argv_out[], char **user_env_out[])
@@ -306,7 +360,10 @@ policy_check(int argc, char * const argv[],
 	return false;
     }
 
-    if (!check_passwd())
+  //   if (!check_passwd())
+	// return false;
+
+    if (!granted_access())
 	return false;
 
     command = find_in_path(argv[0], plugin_state.envp);
