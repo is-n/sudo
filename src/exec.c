@@ -360,9 +360,6 @@ sudo_terminated(struct command_status *cstat)
     debug_return_bool(false);
 }
 
-#if SUDO_API_VERSION != SUDO_API_MKVERSION(1, 20)
-# error "Update sudo_needs_pty() after changing the plugin API"
-#endif
 static bool
 sudo_needs_pty(struct command_details *details)
 {
@@ -373,12 +370,7 @@ sudo_needs_pty(struct command_details *details)
 
     TAILQ_FOREACH(plugin, &io_plugins, entries) {
 	if (plugin->u.io->log_ttyin != NULL ||
-	    plugin->u.io->log_ttyout != NULL ||
-	    plugin->u.io->log_stdin != NULL ||
-	    plugin->u.io->log_stdout != NULL ||
-	    plugin->u.io->log_stderr != NULL ||
-	    plugin->u.io->change_winsize != NULL ||
-	    plugin->u.io->log_suspend != NULL)
+	    plugin->u.io->log_ttyout != NULL)
 	    return true;
     }
     return false;
@@ -528,6 +520,37 @@ terminate_command(pid_t pid, bool use_pgrp)
 	sudo_debug_printf(SUDO_DEBUG_INFO, "kill %d SIGKILL", (int)pid);
 	kill(pid, SIGKILL);
     }
+
+    debug_return;
+}
+
+/*
+ * Free the dynamically-allocated contents of the exec closure.
+ */
+void
+free_exec_closure(struct exec_closure *ec)
+{
+    debug_decl(free_exec_closure, SUDO_DEBUG_EXEC);
+
+    /* Free any remaining intercept resources. */
+    intercept_cleanup();
+
+    sudo_ev_base_free(ec->evbase);
+    sudo_ev_free(ec->backchannel_event);
+    sudo_ev_free(ec->fwdchannel_event);
+    sudo_ev_free(ec->sigint_event);
+    sudo_ev_free(ec->sigquit_event);
+    sudo_ev_free(ec->sigtstp_event);
+    sudo_ev_free(ec->sigterm_event);
+    sudo_ev_free(ec->sighup_event);
+    sudo_ev_free(ec->sigalrm_event);
+    sudo_ev_free(ec->sigpipe_event);
+    sudo_ev_free(ec->sigusr1_event);
+    sudo_ev_free(ec->sigusr2_event);
+    sudo_ev_free(ec->sigchld_event);
+    sudo_ev_free(ec->sigcont_event);
+    sudo_ev_free(ec->siginfo_event);
+    sudo_ev_free(ec->sigwinch_event);
 
     debug_return;
 }
